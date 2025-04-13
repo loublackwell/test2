@@ -1,3 +1,2 @@
 streamlit
-chromadb==0.3.29  # Or whatever 0.3.x version you're using
-numpy==1.23.5     # Try different versions here
+chromadb  # Latest version
