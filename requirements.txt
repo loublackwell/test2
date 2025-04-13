@@ -1,2 +1,2 @@
-streamlit
-chromadb  # Latest version
+pysqlite3-binary>=0.5.0  # Modern SQLite replacement
+chromadb>=0.4.15
