@@ -1,53 +1,61 @@
 import streamlit as st
-import os
+import duckdb
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-# ===== ABSOLUTE CONFIGURATION =====
-os.environ["CHROMA_DB_IMPL"] = "duckdb+parquet"
-os.environ["CHROMA_ALL"] = "YES"
-os.environ["CHROMA_SERVER_NO_SQLITE"] = "1"
-os.environ["CHROMA_DISABLE_SQLITE"] = "1"  # New nuclear option
-# ==================================
+# Initialize embedding model
+@st.cache_resource
+def load_model():
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
 def main():
-    st.title("Working ChromaDB in Streamlit")
+    st.title("Vector Search with DuckDB")
     
-    with st.spinner("Initializing..."):
-        try:
-            # IMPORTANT: Delayed import after environment config
-            import chromadb
-            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-            
-            # Initialize with explicit DuckDB-only settings
-            client = chromadb.Client(
-                settings=chromadb.config.Settings(
-                    chroma_db_impl="duckdb+parquet",
-                    persist_directory=None,  # Disable persistence
-                    allow_reset=True
-                )
-            )
-            
-            # Test with minimal operations
-            collection = client.get_or_create_collection(
-                name="streamlit_test",
-                embedding_function=DefaultEmbeddingFunction()
-            )
-            
-            collection.add(
-                documents=["Finally working in Streamlit Cloud!"],
-                ids=["doc1"]
-            )
-            
-            st.success(f"✅ Success! Documents: {collection.count()}")
-            st.balloons()
-            
-        except Exception as e:
-            st.error(f"Failed: {str(e)}")
-            st.markdown("""
-            **Final Resort:**
-            1. Create a brand new Streamlit app
-            2. Copy this exact code
-            3. Use the requirements below
-            """)
+    # Initialize components
+    embedder = load_model()
+    conn = duckdb.connect(':memory:')
+    
+    # Create vector table
+    conn.execute("""
+    CREATE TABLE documents (
+        id INTEGER PRIMARY KEY,
+        text VARCHAR,
+        embedding FLOAT[384]
+    )
+    """)
+    
+    # File upload
+    uploaded_file = st.file_uploader("Upload documents", type=['txt', 'pdf'])
+    if uploaded_file:
+        text = uploaded_file.read().decode('utf-8')
+        
+        # Generate embedding
+        embedding = embedder.encode(text)
+        
+        # Store in DuckDB
+        conn.execute("""
+        INSERT INTO documents 
+        VALUES (?, ?, ?)
+        """, [1, text, embedding.tolist()])
+        
+        st.success("Document stored!")
+    
+    # Search interface
+    query = st.text_input("Search documents")
+    if query:
+        # Embed query
+        query_embedding = embedder.encode(query)
+        
+        # Vector search
+        results = conn.execute("""
+        SELECT id, text, 
+               array_cosine_similarity(embedding, ?) as similarity
+        FROM documents
+        ORDER BY similarity DESC
+        LIMIT 3
+        """, [query_embedding.tolist()]).fetchdf()
+        
+        st.dataframe(results)
 
 if __name__ == "__main__":
     main()
