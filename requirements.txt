@@ -1,5 +1,4 @@
-streamlit==1.22.0
-chromadb==0.4.22  # Specific working version
-duckdb==0.9.2  # Must be this exact version
-numpy==1.23.5  # Required compatible version
-protobuf==3.20.3  # Critical for avoiding conflicts
+streamlit>=1.22.0
+duckdb>=0.9.0
+sentence-transformers>=2.2.0
+numpy>=1.23.0

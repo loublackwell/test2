@@ -1,51 +1,53 @@
 import streamlit as st
-import os
+import duckdb
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-# ===== ABSOLUTE CONFIGURATION =====
-os.environ["CHROMA_DB_IMPL"] = "duckdb+parquet"  # Force DuckDB
-os.environ["CHROMA_ALL"] = "YES"  # Enable all workarounds
-os.environ["CHROMA_SERVER_NO_SQLITE"] = "1"  # Disable SQLite completely
-os.environ["CHROMA_DISABLE_TELEMETRY"] = "1"  # Reduce conflicts
-# ==================================
+@st.cache_resource
+def load_model():
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
 def main():
-    st.title("ChromaDB on Streamlit Cloud - Working Version")
+    st.title("DuckDB Vector Search")
     
-    with st.spinner("Initializing ChromaDB..."):
-        try:
-            # Delayed import after environment config
-            import chromadb
-            from chromadb.config import Settings
-            
-            # Initialize with explicit DuckDB-only settings
-            client = chromadb.Client(Settings(
-                chroma_db_impl="duckdb+parquet",
-                persist_directory=None,  # Disable persistence
-                allow_reset=True
-            ))
-            
-            # Test with minimal operation
-            version = client.get_version()
-            st.success(f"✅ ChromaDB {version} initialized successfully!")
-            
-            # Simple document test
-            collection = client.create_collection("test_docs")
-            collection.add(
-                documents=["This document proves ChromaDB works on Streamlit Cloud!"],
-                ids=["doc1"]
-            )
-            
-            st.write(f"Documents in collection: {collection.count()}")
-            st.balloons()
-            
-        except Exception as e:
-            st.error(f"Failed to initialize: {str(e)}")
-            st.markdown("""
-            **Final Solution:**
-            1. Use the exact `requirements.txt` below
-            2. Clear cache via ☰ → Settings → Clear cache
-            3. Redeploy the application
-            """)
+    # Initialize
+    embedder = load_model()
+    conn = duckdb.connect(':memory:')
+    
+    # Create vector table
+    conn.execute("""
+    CREATE TABLE documents (
+        id INTEGER PRIMARY KEY,
+        text VARCHAR,
+        embedding FLOAT[384]
+    )
+    """)
+    
+    # Document upload
+    uploaded_file = st.file_uploader("Upload document")
+    if uploaded_file:
+        text = uploaded_file.read().decode('utf-8')
+        embedding = embedder.encode(text).tolist()
+        
+        conn.execute("""
+        INSERT INTO documents VALUES (?, ?, ?)
+        """, [1, text, embedding])
+        
+        st.success("Document stored!")
+    
+    # Search
+    query = st.text_input("Search documents")
+    if query:
+        query_embed = embedder.encode(query).tolist()
+        results = conn.execute("""
+        SELECT text, 
+               array_cosine_similarity(embedding, ?) as score
+        FROM documents
+        ORDER BY score DESC
+        LIMIT 3
+        """, [query_embed]).fetchdf()
+        
+        st.dataframe(results)
 
 if __name__ == "__main__":
     main()
